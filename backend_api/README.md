@@ -17,6 +17,15 @@ Notes:
 - The DB connection uses a row factory for dict-like access and enforces `PRAGMA foreign_keys = ON`.
 - Transactions auto-commit on success and rollback on error.
 
+## CORS
+
+This service is configured to allow browser clients running locally:
+- Allowed origins: `http://localhost:3000`, `http://127.0.0.1:3000`, and `*` (permissive for local development).
+- Allowed methods/headers: `*`
+- allow_credentials: `True`
+
+Typical frontend dev server runs on `http://localhost:3000` and will call this backend on `http://localhost:3001`.
+
 ## Run locally
 
 1. Install dependencies (if not already):
@@ -44,7 +53,12 @@ On startup, the service will initialize the SQLite DB and the `notes` table if m
 
 All timestamps are ISO8601 (UTC).
 
-## Regenerate OpenAPI
+### OpenAPI
+
+- Swagger UI: `http://localhost:3001/docs`
+- OpenAPI JSON: `http://localhost:3001/openapi.json`
+
+### Regenerate OpenAPI (to file)
 
 From the backend_api directory:
 ```
@@ -52,3 +66,12 @@ python -m src.api.generate_openapi
 ```
 
 This writes `interfaces/openapi.json`.
+
+## E2E Verification (from frontend)
+
+With the frontend running on http://localhost:3000:
+1. Create a note from the UI (+ button) -> POST /notes (201)
+2. Edit a note -> PUT /notes/{id} (200)
+3. Delete a note -> DELETE /notes/{id} (204)
+4. Refresh list -> GET /notes (200)
+5. Confirm no CORS errors in browser DevTools when calling http://localhost:3001 from http://localhost:3000.
