@@ -1,7 +1,7 @@
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Generator, Optional
 
 
@@ -24,20 +24,26 @@ def _ensure_data_dir_exists(db_path: str) -> None:
 # PUBLIC_INTERFACE
 @contextmanager
 def get_connection(db_path: Optional[str] = None) -> Generator[sqlite3.Connection, None, None]:
-    """Context manager that yields a SQLite connection with row factory as dict-like.
+    """Context manager that yields a SQLite connection configured for convenience and safety.
 
-    The connection is configured with:
-    - row_factory to access columns by name.
-    - foreign_keys pragma enabled.
+    Configuration details:
+    - Ensures the parent directory for the DB file exists.
+    - Sets row_factory to sqlite3.Row so columns can be accessed by name.
+    - Enables foreign key constraints with PRAGMA.
+    - Commits on success; rolls back on exception; always closes the connection.
 
-    It will commit on success and rollback on exception, then always close.
+    Parameters:
+    - db_path: Optional explicit path to the SQLite DB file. Falls back to environment/default.
+
+    Yields:
+    - sqlite3.Connection instance ready for executing statements.
     """
     path = db_path or get_db_path()
     _ensure_data_dir_exists(path)
-    conn = sqlite3.connect(path)
+    # check_same_thread=False to allow usage across FastAPI worker threads when needed.
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
-        # Ensure foreign keys support
         conn.execute("PRAGMA foreign_keys = ON;")
         yield conn
         conn.commit()
@@ -49,32 +55,50 @@ def get_connection(db_path: Optional[str] = None) -> Generator[sqlite3.Connectio
 
 
 # PUBLIC_INTERFACE
+@contextmanager
+def transaction(db_path: Optional[str] = None) -> Generator[sqlite3.Connection, None, None]:
+    """Provide a transaction context identical to get_connection.
+
+    This is a semantic alias to improve readability at call sites where an
+    explicit 'transaction' is desired. See get_connection for details.
+    """
+    with get_connection(db_path) as conn:
+        yield conn
+
+
+def _create_schema(conn: sqlite3.Connection) -> None:
+    """Create tables if they do not already exist."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+
+
+# PUBLIC_INTERFACE
 def init_db(db_path: Optional[str] = None) -> None:
-    """Initialize the SQLite database and ensure the notes table exists.
+    """Initialize the SQLite database and ensure the required tables exist.
 
     Creates the database file if missing and the 'notes' table with schema:
     - id INTEGER PRIMARY KEY AUTOINCREMENT
     - title TEXT NOT NULL
     - content TEXT NOT NULL
-    - created_at TEXT NOT NULL (ISO8601)
-    - updated_at TEXT NOT NULL (ISO8601)
+    - created_at TEXT NOT NULL (ISO8601, UTC)
+    - updated_at TEXT NOT NULL (ISO8601, UTC)
     """
     path = db_path or get_db_path()
     _ensure_data_dir_exists(path)
     with get_connection(path) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS notes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """
-        )
+        _create_schema(conn)
 
 
+# PUBLIC_INTERFACE
 def iso_now() -> str:
-    """Return current UTC time in ISO8601 format."""
-    return datetime.utcnow().isoformat() + "Z"
+    """Return current UTC time in strict ISO8601 format with 'Z' timezone marker."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

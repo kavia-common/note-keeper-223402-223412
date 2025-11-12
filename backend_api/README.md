@@ -11,7 +11,11 @@ You may create a `.env` in the container root and set:
 DB_PATH=./data/notes.db
 ```
 
-Note: Do not commit secrets; DB_PATH is safe to configure per environment. The application ensures the `./data` directory exists.
+Notes:
+- The application will create the parent directory for the database path if it does not exist (e.g., `./data`).
+- On startup, the service initializes the SQLite database and ensures the required schema exists (creates the `notes` table when missing).
+- The DB connection uses a row factory for dict-like access and enforces `PRAGMA foreign_keys = ON`.
+- Transactions auto-commit on success and rollback on error.
 
 ## Run locally
 
